@@ -47,7 +47,7 @@ import bosdyn.client.recording
 from bosdyn.api.graph_nav import graph_nav_pb2, recording_pb2, map_processing_pb2
 from bosdyn.api.graph_nav.recording_pb2 import CreateWaypointResponse
 from spot_msgs.action import DownloadMapData
-from spot_msgs.srv import CreateWaypoint, OptimizeMapping
+from spot_msgs.srv import CreateWaypoint, OptimizeMapping, DownloadMapData, CreateWaypoint
 
 from bosdyn.client.exceptions import InternalServerError
 from bosdyn.client.lease import Lease, LeaseWallet
@@ -1584,6 +1584,17 @@ class SpotROS(Node):
             self.get_logger().info(f"Failed creating waypoint {response}")
             response.status = CreateWaypoint.Request.STATUS_NOT_RECORDING
             return response
+
+    def handle_stop_dance(self, request: Trigger.Request, response: Trigger.Response) -> Trigger.Response:
+        """ROS service handler to stop the robot's dancing."""
+        if self.spot_wrapper is None:
+            response.success = False
+            response.message = "Spot wrapper is undefined"
+            return response
+        success, msg = self.spot_wrapper.stop_choreography()
+        response.success = success
+        response.message = msg
+        return response
 
     def handle_list_all_dances(
         self, request: ListAllDances.Request, response: ListAllDances.Response
