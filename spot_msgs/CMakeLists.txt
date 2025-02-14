@@ -57,6 +57,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/LeaseResource.msg"
   "msg/PowerState.msg"
   "msg/SystemFaultState.msg"
+  "msg/Waypoint.msg"
   "srv/AcquireLease.srv"
   "srv/ChoreographyRecordedStateToAnimation.srv"
   "srv/ChoreographyStartRecordingState.srv"
@@ -105,12 +106,15 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/SetStandHeight.srv"
   "srv/SetStairsMode.srv"
   "srv/MutateWorldObject.srv"
+  "srv/CreateWaypoint.srv"
+  "srv/OptimizeMapping.srv"
   "action/ArmSurfaceContact.action"
   "action/ExecuteDance.action"
   "action/NavigateTo.action"
   "action/RobotCommand.action"
   "action/Trajectory.action"
   "action/Manipulation.action"
+  "action/DownloadMapData.action"
   DEPENDENCIES
     bosdyn_api_msgs
     bosdyn_spot_api_msgs
