@@ -1,0 +1,7 @@
+string download_filepath
+---
+bool success
+string message
+---
+uint8 status
+float32 progress

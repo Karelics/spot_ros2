@@ -232,4 +232,13 @@ std::optional<geometry_msgs::msg::Vector3Stamped> getEndEffectorForce(const ::bo
 std::optional<spot_msgs::msg::BehaviorFaultState> getBehaviorFaultState(const ::bosdyn::api::RobotState& robot_state,
                                                                         const google::protobuf::Duration& clock_skew);
 
+
+/**
+ * @brief Replace `body` with `base_link` and set the z component of odom->footprint to zero.
+ * These changes will make this driver to work with Brain without extra changes.
+ * 
+ * @param tf_msg 
+ */
+void process_transforms_for_brain(tf2_msgs::msg::TFMessage& tf_msg);
+
 }  // namespace spot_ros2

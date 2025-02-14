@@ -48,8 +48,12 @@ StatePublisherNode::StatePublisherNode(const rclcpp::NodeOptions& node_options) 
   auto spot_api =
       std::make_unique<DefaultSpotApi>(kDefaultSDKName, timesync_timeout, parameter_interface->getCertificate());
 
-  initialize(std::move(spot_api), std::move(mw_handle), std::move(parameter_interface), std::move(logger_interface),
-             std::move(tf_broadcaster_interface), std::move(timer_interface));
+  std::thread init_thread(&StatePublisherNode::initialize, this, std::move(spot_api), std::move(mw_handle),
+                         std::move(parameter_interface), std::move(logger_interface),
+                         std::move(tf_broadcaster_interface), std::move(timer_interface));
+  init_thread.detach();
+  // initialize(std::move(spot_api), std::move(mw_handle), std::move(parameter_interface), std::move(logger_interface),
+  //            std::move(tf_broadcaster_interface), std::move(timer_interface));
 }
 
 void StatePublisherNode::initialize(std::unique_ptr<SpotApi> spot_api,
@@ -72,12 +76,19 @@ void StatePublisherNode::initialize(std::unique_ptr<SpotApi> spot_api,
     logger_interface->logError(error_msg);
     throw std::runtime_error(error_msg);
   }
-
-  if (const auto authentication_result = spot_api_->authenticate(username, password); !authentication_result) {
+  
+  auto authentication_result = spot_api_->authenticate(username, password);
+  while (!authentication_result) {
     const auto error_msg{std::string{"Failed to authenticate robot: "}.append(authentication_result.error())};
     logger_interface->logError(error_msg);
-    throw std::runtime_error(error_msg);
+    std::this_thread::sleep_for(std::chrono::seconds(5));
+    authentication_result = spot_api_->authenticate(username, password);
   }
+  // if (const auto authentication_result = spot_api_->authenticate(username, password); !authentication_result) {
+  //   const auto error_msg{std::string{"Failed to authenticate robot: "}.append(authentication_result.error())};
+  //   logger_interface->logError(error_msg);
+  //   throw std::runtime_error(error_msg);
+  // }
 
   internal_ = std::make_unique<StatePublisher>(spot_api_->stateClientInterface(), spot_api_->timeSyncInterface(),
                                                std::move(middleware_handle), std::move(parameter_interface),

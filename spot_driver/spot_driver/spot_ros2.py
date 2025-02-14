@@ -2,6 +2,7 @@
 # Debug
 # from ros_helpers import *
 import functools
+import time
 import logging
 import os
 import tempfile
@@ -14,7 +15,9 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
-
+from bosdyn.client.graph_nav import CannotModifyMapDuringRecordingError
+from rclpy.publisher import Publisher
+from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus
 import builtin_interfaces.msg
 import numpy as np
 import rclpy
@@ -40,6 +43,12 @@ from bosdyn.api.spot import robot_command_pb2 as spot_command_pb2
 from bosdyn.api.spot.choreography_sequence_pb2 import Animation, ChoreographySequence, ChoreographyStatusResponse
 from bosdyn.client import math_helpers
 from bosdyn.client.async_tasks import AsyncPeriodicQuery
+import bosdyn.client.recording
+from bosdyn.api.graph_nav import graph_nav_pb2, recording_pb2, map_processing_pb2
+from bosdyn.api.graph_nav.recording_pb2 import CreateWaypointResponse
+from spot_msgs.action import DownloadMapData
+from spot_msgs.srv import CreateWaypoint, OptimizeMapping
+
 from bosdyn.client.exceptions import InternalServerError
 from bosdyn.client.lease import Lease, LeaseWallet
 from bosdyn.util import set_clock_source
@@ -361,6 +370,8 @@ class SpotROS(Node):
         super().__init__("spot_ros2", **kwargs)
         self.run_navigate_to: Optional[bool] = None
         self._printed_once: bool = False
+        self.spot_wrapper: SpotWrapper = None
+        self.download_map_as = None
 
         self.get_logger().info(COLOR_GREEN + "Hi from spot_driver." + COLOR_END)
 
@@ -405,6 +416,7 @@ class SpotROS(Node):
 
         self.declare_parameter("use_velodyne", False)
         self.declare_parameter("velodyne_rate", 10.0)
+        self.declare_parameter('diagnostics_name', "/spot/spot_driver")
 
         # When we send very long trajectories to Spot, we create batches of
         # given size. If we do not batch a long trajectory, Spot will reject it.
@@ -447,6 +459,8 @@ class SpotROS(Node):
 
         self.gripperless: bool = self.get_parameter("gripperless").value
 
+        self.diagnostics_name = self.get_parameter('diagnostics_name').value
+
         self._wait_for_goal: Optional[WaitForGoal] = None
         self.goal_handle: Optional[ServerGoalHandle] = None
 
@@ -478,7 +492,7 @@ class SpotROS(Node):
         self.estop_timeout: Parameter = self.get_parameter("estop_timeout")
         self.async_tasks_rate: float = self.get_parameter("async_tasks_rate").value
         if self.async_tasks_rate < max_task_rate:
-            self.get_logger().warn(
+            self.get_logger().warning(
                 COLOR_YELLOW
                 + f"The maximum individual task rate is {max_task_rate} Hz. You have manually set the async_tasks_rate"
                 f" to {self.async_tasks_rate} which is lower and will decrease the frequency of one of the periodic"
@@ -509,8 +523,10 @@ class SpotROS(Node):
         if self.name is not None:
             name_with_dot = self.name + "."
 
-        logging.basicConfig(format="[%(filename)s:%(lineno)d] %(message)s", level=logging.ERROR)
-        self.wrapper_logger = logging.getLogger(f"{name_with_dot}spot_wrapper")
+        # logging.basicConfig(format="[%(filename)s:%(lineno)d] %(message)s", level=logging.INFO)
+        # self.wrapper_logger = logging.getLogger(f"{name_with_dot}spot_wrapper")
+        self.wrapper_logger = self.get_logger().get_child(f"{name_with_dot}spot_wrapper")
+
         self.leash_interface: Optional[SpotLeashProtocol] = None
 
         self.leasing_mode = self.declare_parameter("leasing_mode", "direct").value
@@ -538,6 +554,29 @@ class SpotROS(Node):
         mocking_designator = " (mocked)" if self.mock else ""
         self.get_logger().info("Starting ROS driver for Spot" + name_str + mocking_designator)
         # testing with Robot
+
+        # Diagnostics
+        driver_ok = False
+        diagnostic_publisher = self.create_publisher(DiagnosticArray, "/diagnostics", qos_profile=10)
+
+        def diagnostics_cb():
+            diag_array: DiagnosticArray = DiagnosticArray()
+            diag_array.header.frame_id = "Spot"
+
+            good_status = DiagnosticStatus(name=self.diagnostics_name, level=DiagnosticStatus.OK, message="Connected")
+            bad_status = DiagnosticStatus(name=self.diagnostics_name, level=DiagnosticStatus.ERROR, message="Disconnected")
+
+            while rclpy.ok():
+                diag_array.header.stamp = self.get_clock().now().to_msg()
+                diag_array.status = [good_status if driver_ok else bad_status]
+
+                diagnostic_publisher.publish(diag_array)
+                time.sleep(1.0)
+
+        diagnostics_thread = threading.Thread(
+            target=diagnostics_cb, args=(), daemon=True
+        )
+        diagnostics_thread.start()
 
         if self.mock:
             self.spot_wrapper: Optional[SpotWrapper] = None
@@ -569,6 +608,8 @@ class SpotROS(Node):
             )
             if not self.spot_wrapper.is_valid:
                 return
+
+            driver_ok = True
 
             self.spot_cam_wrapper = None
             if self.initialize_spot_cam:
@@ -898,6 +939,14 @@ class SpotROS(Node):
             lambda request, response: self.service_wrapper("list_graph", self.handle_list_graph, request, response),
             callback_group=self.group,
         )
+        self.create_service(Trigger, "clear_graph", self.handle_clear_graph)
+        self.create_service(Trigger, "start_mapping", self.handle_start_mapping)
+        self.create_service(CreateWaypoint, "create_waypoint", self.handle_create_waypoint)
+        self.create_service(Trigger, "stop_mapping", self.handle_stop_mapping)
+        self.create_service(OptimizeMapping, "optimize_map", self.handle_optimize_map)
+
+        self.download_map_as = ActionServer(self, DownloadMapData, 'download_map', self.handle_download_map)
+
         self.create_service(
             Dock,
             "dock",
@@ -1387,6 +1436,154 @@ class SpotROS(Node):
         response.success = success
         response.message = message
         return response
+
+    def handle_clear_graph(self, _request: Trigger.Request, response: Trigger.Response):
+        """
+        ROS service handler for clearing the map
+        https://dev.bostondynamics.com/protos/bosdyn/api/proto_reference.html?highlight=createwaypoint#cleargraphresponse
+        """
+        try:
+            self.get_logger().info("Clearing graph")
+            success, message = self.spot_wrapper.clear_graph()
+            self.get_logger().info(f"Graph cleared with success={success}, message={message}")
+            response.success = success
+            response.message = message
+            return response
+        except (RuntimeError, CannotModifyMapDuringRecordingError) as e:
+            response.message = f"{e}"
+            response.success = False
+            return response
+
+    def handle_start_mapping(self, _request: Trigger.Request, response: Trigger.Response):
+        """
+        Start the map recording.
+        """
+        self.get_logger().info(f"Starting map mode")
+        # 1. Check recording can be started
+        if not self.spot_wrapper.can_start_recording():
+            response.success = False
+            response.message = "Recording cannot start. Most likely due to invalid localization."
+            return response
+
+        # 2. Try to start the localization.
+        try:
+            graph_nav_resp = self.spot_wrapper.start_recording()
+        except (bosdyn.client.recording.RobotImpairedError) as e:
+            error_msg = f"Robot is impaired, cannot start recording: {repr(e)}"
+            self.get_logger().error(f"{error_msg}")
+            response.success = False
+            response.message = error_msg
+            return response
+
+        response.success = graph_nav_resp == recording_pb2.CreateWaypointResponse.STATUS_OK
+
+        #  from: https://dev.bostondynamics.com/protos/bosdyn/api/proto_reference.html?highlight=createwaypoint#startrecordingresponse-status
+        status_msg_mapping = {
+            0: "Status is unknown/unset.",
+            1: "Recording has been started.",
+            2: "In this case we tried to start recording, "
+               "but GraphNav was internally still waiting for some data from the robot.",
+            3: "Can't start recording because the robot is following a route.",
+            4: "When recording branches, the robot is not localized to "
+               "the existing map before starting to record a new branch.",
+            5: "Can't start recording because the robot doesn't see the required fiducials.",
+            6: "Can't start recording because the map was too large for the license.",
+            7: "A required remote cloud did not exist in the service directory.",
+            8: "A required remote cloud did not have data.",
+            9: "All fiducials are visible but at least one pose could not be determined accurately.",
+            10: "When recording branches, the robot is too far from the "
+                "existing map when starting to record a new branch.",
+        }
+        response.message = status_msg_mapping[graph_nav_resp]
+
+        return response
+
+    def handle_stop_mapping(self, _request: Trigger.Request, response: Trigger.Response):
+        """
+        Stop the map recoding
+        """
+        self.get_logger().info("Stopping mapping")
+        response.success = self.spot_wrapper.stop_recording(retry=True)
+        self.get_logger().info(f"Mapping stopped")
+        return response
+
+    def handle_optimize_map(self, request: OptimizeMapping.Request,
+                            response: OptimizeMapping.Response):
+        """
+        Handle the optimize mapping request
+        """
+        self.get_logger().info("Optimizing map")
+
+        if request.close_fiducial_loops or request.close_odometry_loops:
+            auto_close_resp = self.spot_wrapper.auto_close_loops(
+                close_fiducial_loops=request.close_fiducial_loops,
+                close_odometry_loops=request.close_odometry_loops
+            )
+            # https://dev.bostondynamics.com/protos/bosdyn/api/proto_reference.html?highlight=createwaypoint#bosdyn.api.graph_nav.ProcessTopologyResponse.Status
+            status_msg_map = {
+                0: "Programming error.",
+                1: "Success.",
+                2: "Not all of the waypoint snapshots exist on the server. Upload them to continue.",
+                3: "The graph is invalid topologically, for example containing missing waypoints referenced by edges.",
+                4: "Tried to write the anchoring after processing, but another client may have modified the map. Try again",
+            }
+            if auto_close_resp.status != map_processing_pb2.ProcessTopologyResponse.STATUS_OK:
+                response.success = False
+                response.message = status_msg_map[auto_close_resp.status]
+                return response
+
+        if request.optimize_anchoring:
+            optimize_resp = self.spot_wrapper.optimize_anchoring()
+            # TODO: move this and other satus messages out of here.
+            status_msg_map = {
+                0: "Programming error.",
+                1: "Success.",
+                2: "Not all of the waypoint snapshots exist on the server. Upload them to continue.",
+                3: "The graph is invalid topologically, for example containing missing waypoints referenced by edges.",
+                4: "The optimization failed due to local minima or an ill-conditioned problem definition.",
+                5: "The parameters passed to the optimizer do not make sense (e.g negative weights).",
+                6: "One or more anchors were moved outside of the desired constraints.",
+                7: "The optimizer reached the maximum number of iterations before converging.",
+                8: "The optimizer timed out before converging.",
+                9: "One or more of the hints passed in to the optimizer are invalid "
+                   "(do not correspond to real waypoints or objects).",
+                10: "Tried to write the anchoring after processing, "
+                    "but another client may have modified the map. Try again.",
+            }
+            if optimize_resp.status != map_processing_pb2.ProcessAnchoringResponse.STATUS_OK:
+                response.success = False
+                response.message = status_msg_map[optimize_resp.status]
+                return response
+
+        response.success = True
+        return response
+
+    def handle_download_map(self, goal_handle ) -> DownloadMapData.Result:
+        """ Handle downloading and storing the map data. """
+        goal = goal_handle.request
+        result = DownloadMapData.Result()
+        result.success = self.spot_wrapper.download_full_graph(download_path=goal.download_filepath)
+        result.message = f"{'Succeeded' if result.success else 'Failed '} to downloaded " \
+                         f"full map to: {goal.download_filepath}"
+        print(result)
+        goal_handle.succeed()
+        return result
+
+    def handle_create_waypoint(self, request: CreateWaypoint.Request,
+                               response: CreateWaypoint.Response) -> CreateWaypoint.Response:
+        """Ros service handler for creating waypoints """
+        self.get_logger().info(f"Creating waypoint: {request.waypoint_name}")
+        try:
+            resp: CreateWaypointResponse = self.spot_wrapper.create_waypoint(waypoint_name=request.waypoint_name)
+            self.get_logger().info(f"Created waypoint: {resp}")
+            response.status = resp.status
+            response.created_waypoint.id = str(resp.created_waypoint.id)
+            response.created_waypoint.snapshot_id = resp.created_waypoint.snapshot_id
+            return response
+        except (bosdyn.client.recording.NotRecordingError, bosdyn.client.recording.CouldNotCreateWaypointError):
+            self.get_logger().info(f"Failed creating waypoint {response}")
+            response.status = CreateWaypoint.Request.STATUS_NOT_RECORDING
+            return response
 
     def handle_list_all_dances(
         self, request: ListAllDances.Request, response: ListAllDances.Response
@@ -3084,15 +3281,59 @@ class SpotROS(Node):
         feedback_thread.start()
         if self.spot_wrapper is None:
             self.get_logger().error("Spot wrapper is None")
-            response = NavigateTo.Result()
-            response.success = False
-            response.message = "Spot wrapper is None"
+            result = NavigateTo.Result()
+            result.success = False
+            result.message = "Spot wrapper is None"
             goal_handle.abort()
-            return response
+            return result
+
+        self.spot_wrapper.spot_graph_nav._upload_graph_and_snapshots(goal_handle.request.upload_path)
+
+        # TODO: This call should be somewhere on the wrapper side
+        # This updates the internal waypoint list for wrapper to be able to find the correct ID.
+        _waypoints, _edges = self.spot_wrapper.spot_graph_nav._list_graph_waypoint_and_edge_ids()
+
+        # Set initial localization if provided
+        initial_localization_waypoint = goal_handle.request.initial_localization_waypoint
+        if not initial_localization_waypoint:
+            initial_localization_waypoint = goal_handle.request.initial_localization_waypoint_name
+        self.get_logger().info(f"Initial localization waypoint: {initial_localization_waypoint}")
+
+        if initial_localization_waypoint:
+            self.spot_wrapper.spot_graph_nav.set_initial_localization_waypoint([initial_localization_waypoint])
+        self.get_logger().info("Set initial localization")
+
+        # TODO: NavigateTo.action could be simplified? Only waypoint_id is there by default.
+        # Maybe we could even get rid of that by handling the ID's on Brain side instead?
+        # Find the waypoint to go to
+        if goal_handle.request.waypoint_id:
+            waypoint = goal_handle.request.waypoint_id
+        elif goal_handle.request.navigate_to:
+            waypoint = goal_handle.request.navigate_to
+        elif goal_handle.request.navigate_to_name:
+            waypoint = goal_handle.request.navigate_to_name
+        else:
+            error_msg = "No waypoint or navigate_to name sent to navigate to"
+            self.get_logger().error(error_msg)
+            result = NavigateTo.Result()
+            result.success = False
+            result.message = error_msg
+            goal_handle.abort()
+            return result
+
+        # TODO: Remove - Just debugging log purposes.. ID is found in wrapper side
+        waypoint_id = self.spot_wrapper.spot_graph_nav._find_unique_waypoint_id(
+            waypoint,
+            self.spot_wrapper.spot_graph_nav._current_graph,
+            self.spot_wrapper.spot_graph_nav._current_annotation_name_to_wp_id,
+            self.spot_wrapper.spot_graph_nav._logger,
+        )
+        self.get_logger().info(f"Navigating to waypoint: {waypoint} - ID: {waypoint_id}")
 
         # run navigate_to
         resp = self.spot_wrapper.spot_graph_nav._navigate_to(
-            waypoint_id=goal_handle.request.waypoint_id,
+            waypoint_id=waypoint,
+            goal_handle=goal_handle,
         )
         self.run_navigate_to = False
         feedback_thread.join()
@@ -3103,8 +3344,10 @@ class SpotROS(Node):
         # check status
         if resp[0]:
             goal_handle.succeed()
+            self.get_logger().info("Navigation succeeded")
         else:
             goal_handle.abort()
+            self.get_logger().info("Navigation failed")
 
         return result
 

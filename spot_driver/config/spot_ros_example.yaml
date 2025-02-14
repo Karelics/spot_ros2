@@ -56,3 +56,5 @@
 
     # Change to True if missing gripper on arm
     gripperless: False
+
+    diagnostics_name: "/spot/spot_driver"

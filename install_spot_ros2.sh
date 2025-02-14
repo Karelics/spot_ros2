@@ -23,7 +23,7 @@ else
 fi
 
 # Install ROS dependencies
-#NOTE: Initialize only if a sources list definition doesn't exist yet - avoids the rosdep error message
+# NOTE: Initialize only if a sources list definition doesn't exist yet - avoids the rosdep error message
 if ! [[ $(ls /etc/ros/rosdep/sources.list.d/*default.list 2> /dev/null) ]]; then
   sudo rosdep init
 fi
