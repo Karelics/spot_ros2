@@ -48,7 +48,7 @@ import bosdyn.client.recording
 from bosdyn.api.graph_nav import graph_nav_pb2, recording_pb2, map_processing_pb2
 from bosdyn.api.graph_nav.recording_pb2 import CreateWaypointResponse
 from spot_msgs.action import DownloadMapData
-from spot_msgs.srv import CreateWaypoint, OptimizeMapping
+from spot_msgs.srv import CreateWaypoint, OptimizeMapping, DownloadMapData, CreateWaypoint
 
 from bosdyn.client.exceptions import InternalServerError
 from bosdyn.client.lease import Lease, LeaseWallet
@@ -1443,11 +1443,17 @@ class SpotROS(Node):
         https://dev.bostondynamics.com/protos/bosdyn/api/proto_reference.html?highlight=createwaypoint#cleargraphresponse
         """
         try:
-            self.get_logger().info("Clearing graph")
-            success, message = self.spot_wrapper.clear_graph()
-            self.get_logger().info(f"Graph cleared with success={success}, message={message}")
-            response.success = success
-            response.message = message
+            grpc_result = self.spot_wrapper.clear_graph()
+            # Set status
+            response.success = grpc_result.status == graph_nav_pb2.ClearGraphResponse.STATUS_OK
+            # Set message
+            response_msg_map = {
+                graph_nav_pb2.ClearGraphResponse.STATUS_OK: "Map cleared",
+                graph_nav_pb2.ClearGraphResponse.STATUS_RECORDING: "Still recording, stop recording to reset map",
+                graph_nav_pb2.ClearGraphResponse.STATUS_UNKNOWN: "Unknown status ???",
+            }
+            response.message = response_msg_map[grpc_result.status]
+
             return response
         except (RuntimeError, CannotModifyMapDuringRecordingError) as e:
             response.message = f"{e}"
@@ -1584,6 +1590,17 @@ class SpotROS(Node):
             self.get_logger().info(f"Failed creating waypoint {response}")
             response.status = CreateWaypoint.Request.STATUS_NOT_RECORDING
             return response
+
+    def handle_stop_dance(self, request: Trigger.Request, response: Trigger.Response) -> Trigger.Response:
+        """ROS service handler to stop the robot's dancing."""
+        if self.spot_wrapper is None:
+            response.success = False
+            response.message = "Spot wrapper is undefined"
+            return response
+        success, msg = self.spot_wrapper.stop_choreography()
+        response.success = success
+        response.message = msg
+        return response
 
     def handle_list_all_dances(
         self, request: ListAllDances.Request, response: ListAllDances.Response
@@ -3201,7 +3218,7 @@ class SpotROS(Node):
                     self.goal_handle.publish_feedback(feedback)
             rate.sleep()
 
-    def handle_navigate_to(self, goal_handle: ServerGoalHandle) -> NavigateTo.Result:
+    def handle_navigate_to(self, goal_handle: ServerGoalHandle, resp) -> NavigateTo.Result:
         """ROS service handler to run mission of the robot.  The robot will replay a mission"""
         # create thread to periodically publish feedback
 
@@ -3262,8 +3279,13 @@ class SpotROS(Node):
 
         # run navigate_to
         resp = self.spot_wrapper.spot_graph_nav._navigate_to(
+<<<<<<< HEAD
             waypoint_id=waypoint,
             goal_handle=goal_handle,
+=======
+            waypoint_id=goal_handle.request.waypoint_id,
+            goal_handler=goal_handle,
+>>>>>>> 7037116 (Add Mapping support and diagnostics)
         )
         self.run_navigate_to = False
         feedback_thread.join()
