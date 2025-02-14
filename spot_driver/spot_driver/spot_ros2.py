@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # Debug
 # from ros_helpers import *
+import time
 import logging
 import os
 import tempfile
@@ -11,7 +12,9 @@ import typing
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional, Union
-
+from bosdyn.client.graph_nav import CannotModifyMapDuringRecordingError
+from rclpy.publisher import Publisher
+from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus
 import builtin_interfaces.msg
 import rclpy
 import rclpy.duration
@@ -30,6 +33,12 @@ from bosdyn.api.geometry_pb2 import Quaternion, SE2VelocityLimit
 from bosdyn.api.spot import robot_command_pb2 as spot_command_pb2
 from bosdyn.api.spot.choreography_sequence_pb2 import Animation, ChoreographySequence, ChoreographyStatusResponse
 from bosdyn.client import math_helpers
+import bosdyn.client.recording
+from bosdyn.api.graph_nav import graph_nav_pb2, recording_pb2, map_processing_pb2
+from bosdyn.api.graph_nav.recording_pb2 import CreateWaypointResponse
+from spot_msgs.action import DownloadMapData
+from spot_msgs.srv import CreateWaypoint, OptimizeMapping, DownloadMapData, CreateWaypoint
+
 from bosdyn.client.exceptions import InternalServerError
 from bosdyn_api_msgs.math_helpers import bosdyn_localization_to_pose_msg
 from bosdyn_msgs.conversions import convert
@@ -209,6 +218,8 @@ class SpotROS(Node):
         super().__init__("spot_ros2", **kwargs)
         self.run_navigate_to: Optional[bool] = None
         self._printed_once: bool = False
+        self.spot_wrapper: SpotWrapper = None
+        self.download_map_as = None
 
         self.get_logger().info(COLOR_GREEN + "Hi from spot_driver." + COLOR_END)
 
@@ -250,6 +261,8 @@ class SpotROS(Node):
 
         self.declare_parameter("gripperless", False)
 
+        self.declare_parameter('diagnostics_name', "/spot/spot_driver")
+
         # When we send very long trajectories to Spot, we create batches of
         # given size. If we do not batch a long trajectory, Spot will reject it.
         self.declare_parameter(self.TRAJECTORY_BATCH_SIZE_PARAM, 100)
@@ -290,6 +303,8 @@ class SpotROS(Node):
         self.initialize_spot_cam: bool = self.get_parameter("initialize_spot_cam").value
 
         self.gripperless: bool = self.get_parameter("gripperless").value
+
+        self.diagnostics_name = self.get_parameter('diagnostics_name').value
 
         self._wait_for_goal: Optional[WaitForGoal] = None
         self.goal_handle: Optional[ServerGoalHandle] = None
@@ -356,6 +371,29 @@ class SpotROS(Node):
         self.get_logger().info("Starting ROS driver for Spot" + name_str + mocking_designator)
         # testing with Robot
 
+        # Diagnostics
+        driver_ok = False
+        diagnostic_publisher = self.create_publisher(DiagnosticArray, "/diagnostics", qos_profile=10)
+
+        def diagnostics_cb():
+            diag_array: DiagnosticArray = DiagnosticArray()
+            diag_array.header.frame_id = "Spot"
+
+            good_status = DiagnosticStatus(name=self.diagnostics_name, level=DiagnosticStatus.OK, message="Connected")
+            bad_status = DiagnosticStatus(name=self.diagnostics_name, level=DiagnosticStatus.ERROR, message="Disconnected")
+
+            while rclpy.ok():
+                diag_array.header.stamp = self.get_clock().now().to_msg()
+                diag_array.status = [good_status if driver_ok else bad_status]
+
+                diagnostic_publisher.publish(diag_array)
+                time.sleep(1.0)
+
+        diagnostics_thread = threading.Thread(
+            target=diagnostics_cb, args=(), daemon=True
+        )
+        diagnostics_thread.start()
+
         if self.mock:
             self.spot_wrapper: Optional[SpotWrapper] = None
             self.cam_wrapper: Optional[SpotCamWrapper] = None
@@ -381,6 +419,8 @@ class SpotROS(Node):
             )
             if not self.spot_wrapper.is_valid:
                 return
+
+            driver_ok = True
 
             self.spot_cam_wrapper = None
             if self.initialize_spot_cam:
@@ -821,6 +861,14 @@ class SpotROS(Node):
             lambda request, response: self.service_wrapper("list_graph", self.handle_list_graph, request, response),
             callback_group=self.group,
         )
+        self.create_service(Trigger, "clear_graph", self.handle_clear_graph)
+        self.create_service(Trigger, "start_mapping", self.handle_start_mapping)
+        self.create_service(CreateWaypoint, "create_waypoint", self.handle_create_waypoint)
+        self.create_service(Trigger, "stop_mapping", self.handle_stop_mapping)
+        self.create_service(OptimizeMapping, "optimize_map", self.handle_optimize_map)
+
+        self.download_map_as = ActionServer(self, DownloadMapData, 'download_map', self.handle_download_map)
+
         self.create_service(
             Dock,
             "dock",
@@ -1319,6 +1367,152 @@ class SpotROS(Node):
         response.success = success
         response.message = message
         return response
+
+    def handle_clear_graph(self, _request: Trigger.Request, response: Trigger.Response):
+        """
+        ROS service handler for clearing the map
+        https://dev.bostondynamics.com/protos/bosdyn/api/proto_reference.html?highlight=createwaypoint#cleargraphresponse
+        """
+        try:
+            grpc_result = self.spot_wrapper.clear_graph()
+            # Set status
+            response.success = grpc_result.status == graph_nav_pb2.ClearGraphResponse.STATUS_OK
+            # Set message
+            response_msg_map = {
+                graph_nav_pb2.ClearGraphResponse.STATUS_OK: "Map cleared",
+                graph_nav_pb2.ClearGraphResponse.STATUS_RECORDING: "Still recording, stop recording to reset map",
+                graph_nav_pb2.ClearGraphResponse.STATUS_UNKNOWN: "Unknown status ???",
+            }
+            response.message = response_msg_map[grpc_result.status]
+
+            return response
+        except (RuntimeError, CannotModifyMapDuringRecordingError) as e:
+            response.message = f"{e}"
+            response.success = False
+            return response
+
+    def handle_start_mapping(self, _request: Trigger.Request, response: Trigger.Response):
+        """
+        Start the map recording.
+        """
+        self.get_logger().info(f"Starting map mode")
+        # 1. Check recording can be started
+        if not self.spot_wrapper.can_start_recording():
+            response.success = False
+            response.message = "Recording cannot start. Most likely due to invalid localization."
+            return response
+
+        # 2. Try to start the localization.
+        graph_nav_resp = self.spot_wrapper.start_recording()
+        response.success = graph_nav_resp == recording_pb2.CreateWaypointResponse.STATUS_OK
+
+        #  from: https://dev.bostondynamics.com/protos/bosdyn/api/proto_reference.html?highlight=createwaypoint#startrecordingresponse-status
+        status_msg_mapping = {
+            0: "Status is unknown/unset.",
+            1: "Recording has been started.",
+            2: "In this case we tried to start recording, "
+               "but GraphNav was internally still waiting for some data from the robot.",
+            3: "Can't start recording because the robot is following a route.",
+            4: "When recording branches, the robot is not localized to "
+               "the existing map before starting to record a new branch.",
+            5: "Can't start recording because the robot doesn't see the required fiducials.",
+            6: "Can't start recording because the map was too large for the license.",
+            7: "A required remote cloud did not exist in the service directory.",
+            8: "A required remote cloud did not have data.",
+            9: "All fiducials are visible but at least one pose could not be determined accurately.",
+            10: "When recording branches, the robot is too far from the "
+                "existing map when starting to record a new branch.",
+        }
+        response.message = status_msg_mapping[graph_nav_resp]
+
+        return response
+
+    def handle_stop_mapping(self, _request: Trigger.Request, response: Trigger.Response):
+        """
+        Stop the map recoding
+        """
+        self.get_logger().info("Stopping mapping")
+        response.success = self.spot_wrapper.stop_recording(retry=True)
+        self.get_logger().info(f"Mapping stopped")
+        return response
+
+    def handle_optimize_map(self, request: OptimizeMapping.Request,
+                            response: OptimizeMapping.Response):
+        """
+        Handle the optimize mapping request
+        """
+        self.get_logger().info("Optimizing map")
+
+        if request.close_fiducial_loops or request.close_odometry_loops:
+            auto_close_resp = self.spot_wrapper.auto_close_loops(
+                close_fiducial_loops=request.close_fiducial_loops,
+                close_odometry_loops=request.close_odometry_loops
+            )
+            # https://dev.bostondynamics.com/protos/bosdyn/api/proto_reference.html?highlight=createwaypoint#bosdyn.api.graph_nav.ProcessTopologyResponse.Status
+            status_msg_map = {
+                0: "Programming error.",
+                1: "Success.",
+                2: "Not all of the waypoint snapshots exist on the server. Upload them to continue.",
+                3: "The graph is invalid topologically, for example containing missing waypoints referenced by edges.",
+                4: "Tried to write the anchoring after processing, but another client may have modified the map. Try again",
+            }
+            if auto_close_resp.status != map_processing_pb2.ProcessTopologyResponse.STATUS_OK:
+                response.success = False
+                response.message = status_msg_map[auto_close_resp.status]
+                return response
+
+        if request.optimize_anchoring:
+            optimize_resp = self.spot_wrapper.optimize_anchoring()
+            # TODO: move this and other satus messages out of here.
+            status_msg_map = {
+                0: "Programming error.",
+                1: "Success.",
+                2: "Not all of the waypoint snapshots exist on the server. Upload them to continue.",
+                3: "The graph is invalid topologically, for example containing missing waypoints referenced by edges.",
+                4: "The optimization failed due to local minima or an ill-conditioned problem definition.",
+                5: "The parameters passed to the optimizer do not make sense (e.g negative weights).",
+                6: "One or more anchors were moved outside of the desired constraints.",
+                7: "The optimizer reached the maximum number of iterations before converging.",
+                8: "The optimizer timed out before converging.",
+                9: "One or more of the hints passed in to the optimizer are invalid "
+                   "(do not correspond to real waypoints or objects).",
+                10: "Tried to write the anchoring after processing, "
+                    "but another client may have modified the map. Try again.",
+            }
+            if optimize_resp.status != map_processing_pb2.ProcessAnchoringResponse.STATUS_OK:
+                response.success = False
+                response.message = status_msg_map[optimize_resp.status]
+                return response
+
+        response.success = True
+        return response
+
+    def handle_download_map(self, goal_handle ) -> DownloadMapData.Result:
+        """ Handle downloading and storing the map data. """
+        goal = goal_handle.request
+        result = DownloadMapData.Result()
+        result.success = self.spot_wrapper.download_full_graph(download_path=goal.download_filepath)
+        result.message = f"{'Succeeded' if result.success else 'Failed '} to downloaded " \
+                         f"full map to: {goal.download_filepath}"
+        print(result)
+        goal_handle.succeed()
+        return result
+
+    def handle_create_waypoint(self, request: CreateWaypoint.Request,
+                               response: CreateWaypoint.Response) -> CreateWaypoint.Response:
+        """Ros service handler for creating waypoints """
+        self.node.get_logger().info(f"Creating waypoint: {request.waypoint_name}")
+        try:
+            resp: CreateWaypointResponse = self.spot_wrapper.create_waypoint(waypoint_name=request.waypoint_name)
+            print(resp)
+            response.status = resp.status
+            response.created_waypoint.id = str(resp.created_waypoint.id)
+            response.created_waypoint.snapshot_id = resp.created_waypoint.snapshot_id
+            return response
+        except (bosdyn.client.recording.NotRecordingError, bosdyn.client.recording.CouldNotCreateWaypointError):
+            self.get_logger().info(f"Failed creating waypoint {response}")
+            response.status = CreateWaypoint.Request.STATUS_NOT_RECORDING
+            return response
 
     def handle_stop_dance(self, request: Trigger.Request, response: Trigger.Response) -> Trigger.Response:
         """ROS service handler to stop the robot's dancing."""
@@ -2836,7 +3030,7 @@ class SpotROS(Node):
             time.sleep(0.1)
             # rclpy.Rate(10).sleep()
 
-    def handle_navigate_to(self, goal_handle: ServerGoalHandle) -> NavigateTo.Result:
+    def handle_navigate_to(self, goal_handle: ServerGoalHandle, resp) -> NavigateTo.Result:
         """ROS service handler to run mission of the robot.  The robot will replay a mission"""
         # create thread to periodically publish feedback
 
@@ -2855,6 +3049,7 @@ class SpotROS(Node):
         # run navigate_to
         resp = self.spot_wrapper.spot_graph_nav._navigate_to(
             waypoint_id=goal_handle.request.waypoint_id,
+            goal_handler=goal_handle,
         )
         self.run_navigate_to = False
         feedback_thread.join()

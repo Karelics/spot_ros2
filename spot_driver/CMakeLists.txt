@@ -31,6 +31,7 @@ set(THIS_PACKAGE_INCLUDE_ROS_DEPENDS
   tl_expected
   spot_msgs
   nav_msgs
+  diagnostic_msgs
 )
 
 find_package(ament_cmake REQUIRED)

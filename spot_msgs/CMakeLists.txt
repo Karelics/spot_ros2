@@ -56,6 +56,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/LeaseResource.msg"
   "msg/PowerState.msg"
   "msg/SystemFaultState.msg"
+  "msg/Waypoint.msg"
   "srv/ChoreographyRecordedStateToAnimation.srv"
   "srv/ChoreographyStartRecordingState.srv"
   "srv/ChoreographyStopRecordingState.srv"
@@ -99,11 +100,14 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/GetGripperCameraParameters.srv"
   "srv/SetGripperCameraParameters.srv"
   "srv/OverrideGraspOrCarry.srv"
+  "srv/CreateWaypoint.srv"
+  "srv/OptimizeMapping.srv"
   "action/ExecuteDance.action"
   "action/NavigateTo.action"
   "action/RobotCommand.action"
   "action/Trajectory.action"
   "action/Manipulation.action"
+  "action/DownloadMapData.action"
   DEPENDENCIES
     bosdyn_api_msgs
     bosdyn_spot_api_msgs
