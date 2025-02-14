@@ -58,8 +58,11 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/LeaseResource.msg"
   "msg/PowerState.msg"
   "msg/SystemFaultState.msg"
+<<<<<<< HEAD
   "msg/GraspResult.msg"
   "msg/ManipulationPhase.msg"
+=======
+>>>>>>> 7e24d22 (Add Mapping support and diagnostics)
   "msg/Waypoint.msg"
   "srv/AcquireLease.srv"
   "srv/ChoreographyRecordedStateToAnimation.srv"
