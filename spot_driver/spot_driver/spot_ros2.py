@@ -14,7 +14,7 @@ import weakref
 from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional, Tuple Union
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 from bosdyn.client.graph_nav import CannotModifyMapDuringRecordingError
 from rclpy.publisher import Publisher
 from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus
@@ -1580,17 +1580,6 @@ class SpotROS(Node):
             self.get_logger().info(f"Failed creating waypoint {response}")
             response.status = CreateWaypoint.Request.STATUS_NOT_RECORDING
             return response
-
-    def handle_stop_dance(self, request: Trigger.Request, response: Trigger.Response) -> Trigger.Response:
-        """ROS service handler to stop the robot's dancing."""
-        if self.spot_wrapper is None:
-            response.success = False
-            response.message = "Spot wrapper is undefined"
-            return response
-        success, msg = self.spot_wrapper.stop_choreography()
-        response.success = success
-        response.message = msg
-        return response
 
     def handle_list_all_dances(
         self, request: ListAllDances.Request, response: ListAllDances.Response
