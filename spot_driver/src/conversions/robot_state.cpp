@@ -183,6 +183,12 @@ std::optional<tf2_msgs::msg::TFMessage> getTf(const ::bosdyn::api::FrameTreeSnap
     }
   }
 
+<<<<<<< HEAD
+=======
+  // Do extra processing to make this driver work with Brain
+  process_transforms_for_brain(tf_msg);
+
+>>>>>>> fa8066f (Add base_footprint and convert body to base_link)
   return tf_msg;
 }
 
