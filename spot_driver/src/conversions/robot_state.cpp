@@ -443,6 +443,7 @@ void process_transforms_for_brain(tf2_msgs::msg::TFMessage& tf_msg) {
     if (transform.header.frame_id == "odom" && transform.child_frame_id == "gpe") {
       transform.transform.translation.z = 0.0;
     }
+  }
 }
 
 
