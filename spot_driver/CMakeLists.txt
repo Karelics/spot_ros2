@@ -34,6 +34,7 @@ set(THIS_PACKAGE_INCLUDE_ROS_DEPENDS
   std_srvs
   nav_msgs
   diagnostic_msgs
+  tf2_geometry_msgs
 )
 
 find_package(ament_cmake REQUIRED)
