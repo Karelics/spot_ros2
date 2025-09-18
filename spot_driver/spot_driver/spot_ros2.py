@@ -1443,17 +1443,9 @@ class SpotROS(Node):
         https://dev.bostondynamics.com/protos/bosdyn/api/proto_reference.html?highlight=createwaypoint#cleargraphresponse
         """
         try:
-            grpc_result = self.spot_wrapper.clear_graph()
-            # Set status
-            response.success = grpc_result.status == graph_nav_pb2.ClearGraphResponse.STATUS_OK
-            # Set message
-            response_msg_map = {
-                graph_nav_pb2.ClearGraphResponse.STATUS_OK: "Map cleared",
-                graph_nav_pb2.ClearGraphResponse.STATUS_RECORDING: "Still recording, stop recording to reset map",
-                graph_nav_pb2.ClearGraphResponse.STATUS_UNKNOWN: "Unknown status ???",
-            }
-            response.message = response_msg_map[grpc_result.status]
-
+            success, message = self.spot_wrapper.clear_graph()
+            response.success = success
+            response.message = message
             return response
         except (RuntimeError, CannotModifyMapDuringRecordingError) as e:
             response.message = f"{e}"
