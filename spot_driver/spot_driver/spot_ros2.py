@@ -1443,7 +1443,9 @@ class SpotROS(Node):
         https://dev.bostondynamics.com/protos/bosdyn/api/proto_reference.html?highlight=createwaypoint#cleargraphresponse
         """
         try:
+            self.get_logger().info("Clearing graph")
             success, message = self.spot_wrapper.clear_graph()
+            self.get_logger().info(f"Graph cleared with success={success}, message={message}")
             response.success = success
             response.message = message
             return response
@@ -3210,7 +3212,7 @@ class SpotROS(Node):
                     self.goal_handle.publish_feedback(feedback)
             rate.sleep()
 
-    def handle_navigate_to(self, goal_handle: ServerGoalHandle, resp) -> NavigateTo.Result:
+    def handle_navigate_to(self, goal_handle: ServerGoalHandle) -> NavigateTo.Result:
         """ROS service handler to run mission of the robot.  The robot will replay a mission"""
         # create thread to periodically publish feedback
 
@@ -3271,13 +3273,8 @@ class SpotROS(Node):
 
         # run navigate_to
         resp = self.spot_wrapper.spot_graph_nav._navigate_to(
-<<<<<<< HEAD
             waypoint_id=waypoint,
             goal_handle=goal_handle,
-=======
-            waypoint_id=goal_handle.request.waypoint_id,
-            goal_handler=goal_handle,
->>>>>>> 7037116 (Add Mapping support and diagnostics)
         )
         self.run_navigate_to = False
         feedback_thread.join()
