@@ -1443,7 +1443,9 @@ class SpotROS(Node):
         https://dev.bostondynamics.com/protos/bosdyn/api/proto_reference.html?highlight=createwaypoint#cleargraphresponse
         """
         try:
+            self.get_logger().info("Clearing graph")
             success, message = self.spot_wrapper.clear_graph()
+            self.get_logger().info(f"Graph cleared with success={success}, message={message}")
             response.success = success
             response.message = message
             return response
@@ -1464,7 +1466,15 @@ class SpotROS(Node):
             return response
 
         # 2. Try to start the localization.
-        graph_nav_resp = self.spot_wrapper.start_recording()
+        try:
+            graph_nav_resp = self.spot_wrapper.start_recording()
+        except (bosdyn.client.recording.RobotImpairedError) as e:
+            error_msg = f"Robot is impaired, cannot start recording: {repr(e)}"
+            self.get_logger().error(f"{error_msg}")
+            response.success = False
+            response.message = error_msg
+            return response
+
         response.success = graph_nav_resp == recording_pb2.CreateWaypointResponse.STATUS_OK
 
         #  from: https://dev.bostondynamics.com/protos/bosdyn/api/proto_reference.html?highlight=createwaypoint#startrecordingresponse-status
@@ -1562,10 +1572,10 @@ class SpotROS(Node):
     def handle_create_waypoint(self, request: CreateWaypoint.Request,
                                response: CreateWaypoint.Response) -> CreateWaypoint.Response:
         """Ros service handler for creating waypoints """
-        self.node.get_logger().info(f"Creating waypoint: {request.waypoint_name}")
+        self.get_logger().info(f"Creating waypoint: {request.waypoint_name}")
         try:
             resp: CreateWaypointResponse = self.spot_wrapper.create_waypoint(waypoint_name=request.waypoint_name)
-            print(resp)
+            self.get_logger().info(f"Created waypoint: {resp}")
             response.status = resp.status
             response.created_waypoint.id = str(resp.created_waypoint.id)
             response.created_waypoint.snapshot_id = resp.created_waypoint.snapshot_id
@@ -3267,7 +3277,7 @@ class SpotROS(Node):
                     self.goal_handle.publish_feedback(feedback)
             rate.sleep()
 
-    def handle_navigate_to(self, goal_handle: ServerGoalHandle, resp) -> NavigateTo.Result:
+    def handle_navigate_to(self, goal_handle: ServerGoalHandle) -> NavigateTo.Result:
         """ROS service handler to run mission of the robot.  The robot will replay a mission"""
         # create thread to periodically publish feedback
 
@@ -3328,7 +3338,8 @@ class SpotROS(Node):
 
         # run navigate_to
         resp = self.spot_wrapper.spot_graph_nav._navigate_to(
-            waypoint_id=goal_handle.request.waypoint_id,
+            waypoint_id=waypoint,
+            goal_handle=goal_handle,
         )
         self.run_navigate_to = False
         feedback_thread.join()
