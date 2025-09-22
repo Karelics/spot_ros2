@@ -1448,7 +1448,9 @@ class SpotROS(Node):
         https://dev.bostondynamics.com/protos/bosdyn/api/proto_reference.html?highlight=createwaypoint#cleargraphresponse
         """
         try:
+            self.get_logger().info("Clearing graph")
             success, message = self.spot_wrapper.clear_graph()
+            self.get_logger().info(f"Graph cleared with success={success}, message={message}")
             response.success = success
             response.message = message
             return response
@@ -3291,7 +3293,7 @@ class SpotROS(Node):
                     self.goal_handle.publish_feedback(feedback)
             rate.sleep()
 
-    def handle_navigate_to(self, goal_handle: ServerGoalHandle, resp) -> NavigateTo.Result:
+    def handle_navigate_to(self, goal_handle: ServerGoalHandle) -> NavigateTo.Result:
         """ROS service handler to run mission of the robot.  The robot will replay a mission"""
         # create thread to periodically publish feedback
 
