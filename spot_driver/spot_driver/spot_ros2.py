@@ -1441,7 +1441,9 @@ class SpotROS(Node):
         https://dev.bostondynamics.com/protos/bosdyn/api/proto_reference.html?highlight=createwaypoint#cleargraphresponse
         """
         try:
+            self.get_logger().info("Clearing graph")
             success, message = self.spot_wrapper.clear_graph()
+            self.get_logger().info(f"Graph cleared with success={success}, message={message}")
             response.success = success
             response.message = message
             return response
@@ -1462,7 +1464,15 @@ class SpotROS(Node):
             return response
 
         # 2. Try to start the localization.
-        graph_nav_resp = self.spot_wrapper.start_recording()
+        try:
+            graph_nav_resp = self.spot_wrapper.start_recording()
+        except (bosdyn.client.recording.RobotImpairedError) as e:
+            error_msg = f"Robot is impaired, cannot start recording: {repr(e)}"
+            self.get_logger().error(f"{error_msg}")
+            response.success = False
+            response.message = error_msg
+            return response
+
         response.success = graph_nav_resp == recording_pb2.CreateWaypointResponse.STATUS_OK
 
         #  from: https://dev.bostondynamics.com/protos/bosdyn/api/proto_reference.html?highlight=createwaypoint#startrecordingresponse-status
@@ -1560,10 +1570,10 @@ class SpotROS(Node):
     def handle_create_waypoint(self, request: CreateWaypoint.Request,
                                response: CreateWaypoint.Response) -> CreateWaypoint.Response:
         """Ros service handler for creating waypoints """
-        self.node.get_logger().info(f"Creating waypoint: {request.waypoint_name}")
+        self.get_logger().info(f"Creating waypoint: {request.waypoint_name}")
         try:
             resp: CreateWaypointResponse = self.spot_wrapper.create_waypoint(waypoint_name=request.waypoint_name)
-            print(resp)
+            self.get_logger().info(f"Created waypoint: {resp}")
             response.status = resp.status
             response.created_waypoint.id = str(resp.created_waypoint.id)
             response.created_waypoint.snapshot_id = resp.created_waypoint.snapshot_id
@@ -3189,7 +3199,7 @@ class SpotROS(Node):
                     self.goal_handle.publish_feedback(feedback)
             rate.sleep()
 
-    def handle_navigate_to(self, goal_handle: ServerGoalHandle, resp) -> NavigateTo.Result:
+    def handle_navigate_to(self, goal_handle: ServerGoalHandle) -> NavigateTo.Result:
         """ROS service handler to run mission of the robot.  The robot will replay a mission"""
         # create thread to periodically publish feedback
 
@@ -3199,16 +3209,58 @@ class SpotROS(Node):
         feedback_thread.start()
         if self.spot_wrapper is None:
             self.get_logger().error("Spot wrapper is None")
-            response = NavigateTo.Result()
-            response.success = False
-            response.message = "Spot wrapper is None"
+            result = NavigateTo.Result()
+            result.success = False
+            result.message = "Spot wrapper is None"
             goal_handle.abort()
-            return response
+            return result
+
+        self.spot_wrapper.spot_graph_nav._upload_graph_and_snapshots(goal_handle.request.upload_path)
+
+        # TODO: This call should be somewhere on the wrapper side
+        # This updates the internal waypoint list for wrapper to be able to find the correct ID.
+        _waypoints, _edges = self.spot_wrapper.spot_graph_nav._list_graph_waypoint_and_edge_ids()
+
+        # Set initial localization if provided
+        initial_localization_waypoint = goal_handle.request.initial_localization_waypoint
+        if not initial_localization_waypoint:
+            initial_localization_waypoint = goal_handle.request.initial_localization_waypoint_name
+        self._get_logger().info(f"Initial localization waypoint: {initial_localization_waypoint}")
+
+        if initial_localization_waypoint:
+            self.spot_wrapper.spot_graph_nav.set_initial_localization_waypoint([initial_localization_waypoint])
+
+        # TODO: NavigateTo.action could be simplified? Only waypoint_id is there by default.
+        # Maybe we could even get rid of that by handling the ID's on Brain side instead?
+        # Find the waypoint to go to
+        if goal_handle.request.waypoint_id:
+            waypoint = goal_handle.request.waypoint_id
+        elif goal_handle.request.navigate_to:
+            waypoint = goal_handle.request.navigate_to
+        elif goal_handle.request.navigate_to_name:
+            waypoint = goal_handle.request.navigate_to_name
+        else:
+            error_msg = "No waypoint or navigate_to name sent to navigate to"
+            self.get_logger().error(error_msg)
+            result = NavigateTo.Result()
+            result.success = False
+            result.message = error_msg
+            goal_handle.abort()
+            return result
+
+        # TODO: Remove - Just debugging log purposes.. ID is found in wrapper side
+        waypoint_id = self.spot_wrapper.spot_graph_nav._find_unique_waypoint_id(
+            waypoint,
+            self.spot_wrapper.spot_graph_nav._current_graph,
+            self.spot_wrapper.spot_graph_nav._current_annotation_name_to_wp_id,
+            self.spot_wrapper.spot_graph_nav._logger,
+        )
+        self.get_logger().info(f"Navigating to waypoint: {waypoint} - ID: {waypoint_id}")
 
         # run navigate_to
         resp = self.spot_wrapper.spot_graph_nav._navigate_to(
-            waypoint_id=goal_handle.request.waypoint_id,
-            goal_handler=goal_handle,
+            waypoint_id=waypoint,
+            goal_handle=goal_handle,
         )
         self.run_navigate_to = False
         feedback_thread.join()
@@ -3219,8 +3271,10 @@ class SpotROS(Node):
         # check status
         if resp[0]:
             goal_handle.succeed()
+            self.get_logger().info("Navigation succeeded")
         else:
             goal_handle.abort()
+            self.get_logger().info("Navigation failed")
 
         return result
 
