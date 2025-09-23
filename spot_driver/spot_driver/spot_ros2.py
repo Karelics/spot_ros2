@@ -523,8 +523,10 @@ class SpotROS(Node):
         if self.name is not None:
             name_with_dot = self.name + "."
 
-        logging.basicConfig(format="[%(filename)s:%(lineno)d] %(message)s", level=logging.ERROR)
-        self.wrapper_logger = logging.getLogger(f"{name_with_dot}spot_wrapper")
+        # logging.basicConfig(format="[%(filename)s:%(lineno)d] %(message)s", level=logging.INFO)
+        # self.wrapper_logger = logging.getLogger(f"{name_with_dot}spot_wrapper")
+        self.wrapper_logger = self.get_logger().get_child(f"{name_with_dot}spot_wrapper")
+
         self.leash_interface: Optional[SpotLeashProtocol] = None
 
         self.leasing_mode = self.declare_parameter("leasing_mode", "direct").value
