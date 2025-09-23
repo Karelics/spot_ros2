@@ -24,10 +24,10 @@ fi
 
 # Install ROS dependencies
 #NOTE: Initialize only if a sources list definition doesn't exist yet - avoids the rosdep error message
-if ! [[ $(ls /etc/ros/rosdep/sources.list.d/*default.list 2> /dev/null) ]]; then
-  sudo rosdep init
-fi
-source /opt/ros/humble/setup.bash && rosdep update && rosdep install --from-paths ./ --ignore-src -y -r --rosdistro=humble
+# if ! [[ $(ls /etc/ros/rosdep/sources.list.d/*default.list 2> /dev/null) ]]; then
+#   sudo rosdep init
+# fi
+# # source /opt/ros/humble/setup.bash && rosdep update && rosdep install --from-paths ./ --ignore-src -y -r --rosdistro=humble
 
 # Install Qt5UiTools
 sudo apt-get install -y qttools5-dev
