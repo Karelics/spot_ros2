@@ -492,7 +492,7 @@ class SpotROS(Node):
         self.estop_timeout: Parameter = self.get_parameter("estop_timeout")
         self.async_tasks_rate: float = self.get_parameter("async_tasks_rate").value
         if self.async_tasks_rate < max_task_rate:
-            self.get_logger().warn(
+            self.get_logger().warning(
                 COLOR_YELLOW
                 + f"The maximum individual task rate is {max_task_rate} Hz. You have manually set the async_tasks_rate"
                 f" to {self.async_tasks_rate} which is lower and will decrease the frequency of one of the periodic"
@@ -3227,10 +3227,11 @@ class SpotROS(Node):
         initial_localization_waypoint = goal_handle.request.initial_localization_waypoint
         if not initial_localization_waypoint:
             initial_localization_waypoint = goal_handle.request.initial_localization_waypoint_name
-        self._get_logger().info(f"Initial localization waypoint: {initial_localization_waypoint}")
+        self.get_logger().info(f"Initial localization waypoint: {initial_localization_waypoint}")
 
         if initial_localization_waypoint:
             self.spot_wrapper.spot_graph_nav.set_initial_localization_waypoint([initial_localization_waypoint])
+        self.get_logger().info("Set initial localization")
 
         # TODO: NavigateTo.action could be simplified? Only waypoint_id is there by default.
         # Maybe we could even get rid of that by handling the ID's on Brain side instead?
