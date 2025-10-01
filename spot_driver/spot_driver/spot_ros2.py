@@ -2863,7 +2863,7 @@ class SpotROS(Node):
         if skip_cmd_vel and not self.spot_wrapper.check_is_powered_on():
             self.get_logger().info(
                 "Tried to send velocity command but skip_cmd_vel_if_motor_power_off is set to True, " \
-                "thus preventing movement until motors are manually powered on. [This message is throttled]",
+                "thus preventing movement until motors are manually powered on. [5s throttled]",
                 throttle_duration_sec=5.0)
             return
 
