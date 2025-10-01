@@ -391,6 +391,7 @@ class SpotROS(Node):
         self.declare_parameter("continually_try_stand", False)
 
         self.declare_parameter("estop_timeout", 9.0)
+        self.declare_parameter("skip_cmd_vel_if_motor_power_off", False)
         self.declare_parameter("cmd_duration", 0.125)
         self.declare_parameter("arm_cmd_duration", 1.0)
         self.declare_parameter("start_estop", False)
@@ -523,8 +524,6 @@ class SpotROS(Node):
         if self.name is not None:
             name_with_dot = self.name + "."
 
-        # logging.basicConfig(format="[%(filename)s:%(lineno)d] %(message)s", level=logging.INFO)
-        # self.wrapper_logger = logging.getLogger(f"{name_with_dot}spot_wrapper")
         self.wrapper_logger = self.get_logger().get_child(f"{name_with_dot}spot_wrapper")
 
         self.leash_interface: Optional[SpotLeashProtocol] = None
@@ -2860,9 +2859,15 @@ class SpotROS(Node):
         if not self.spot_wrapper:
             self.get_logger().info(f"Mock mode, received command vel {data}")
             return
-        self.spot_wrapper.velocity_cmd(
-            v_x=data.linear.x, v_y=data.linear.y, v_rot=data.angular.z, cmd_duration=self.cmd_duration
-        )
+        skip_cmd_vel = self.get_parameter("skip_cmd_vel_if_motor_power_off").value
+        if skip_cmd_vel and not self.spot_wrapper.check_is_powered_on():
+            self.get_logger().info(
+                "Tried to send velocity command but skip_cmd_vel_if_motor_power_off is set to True, " \
+                "thus preventing movement until motors are manually powered on. [This message is throttled]",
+                throttle_duration_sec=5.0)
+            return
+
+        self.spot_wrapper.velocity_cmd(data.linear.x, data.linear.y, data.angular.z, self.cmd_duration)
 
     def body_pose_callback(self, data: Pose) -> None:
         """Callback for cmd_vel command"""
