@@ -46,11 +46,6 @@ from bosdyn.client import math_helpers
 from bosdyn.client.async_tasks import AsyncPeriodicQuery
 from bosdyn.api.graph_nav import graph_nav_pb2, recording_pb2, map_processing_pb2
 from bosdyn.api.graph_nav.recording_pb2 import CreateWaypointResponse
-<<<<<<< HEAD
-=======
-from spot_msgs.action import DownloadMapData
-from spot_msgs.srv import CreateWaypoint, OptimizeMapping, DownloadMapData, CreateWaypoint
->>>>>>> 261a3ca (Add Mapping support and diagnostics)
 
 from bosdyn.client.exceptions import InternalServerError
 from bosdyn.client.lease import Lease, LeaseWallet
