@@ -1584,17 +1584,6 @@ class SpotROS(Node):
             response.status = CreateWaypoint.Request.STATUS_NOT_RECORDING
             return response
 
-    def handle_stop_dance(self, request: Trigger.Request, response: Trigger.Response) -> Trigger.Response:
-        """ROS service handler to stop the robot's dancing."""
-        if self.spot_wrapper is None:
-            response.success = False
-            response.message = "Spot wrapper is undefined"
-            return response
-        success, msg = self.spot_wrapper.stop_choreography()
-        response.success = success
-        response.message = msg
-        return response
-
     def handle_list_all_dances(
         self, request: ListAllDances.Request, response: ListAllDances.Response
     ) -> ListAllDances.Response:
