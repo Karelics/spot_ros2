@@ -45,10 +45,10 @@ from bosdyn.api.spot.choreography_sequence_pb2 import Animation, ChoreographySeq
 from bosdyn.client import math_helpers
 from bosdyn.client.async_tasks import AsyncPeriodicQuery
 import bosdyn.client.recording
-from bosdyn.api.graph_nav import graph_nav_pb2, recording_pb2, map_processing_pb2
+from bosdyn.api.graph_nav import recording_pb2, map_processing_pb2
 from bosdyn.api.graph_nav.recording_pb2 import CreateWaypointResponse
 from spot_msgs.action import DownloadMapData
-from spot_msgs.srv import CreateWaypoint, OptimizeMapping, DownloadMapData, CreateWaypoint
+from spot_msgs.srv import CreateWaypoint, OptimizeMapping, CreateWaypoint
 
 from bosdyn.client.exceptions import InternalServerError
 from bosdyn.client.lease import Lease, LeaseWallet
