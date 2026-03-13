@@ -44,7 +44,7 @@ from bosdyn.api.spot import robot_command_pb2 as spot_command_pb2
 from bosdyn.api.spot.choreography_sequence_pb2 import Animation, ChoreographySequence, ChoreographyStatusResponse
 from bosdyn.client import math_helpers
 from bosdyn.client.async_tasks import AsyncPeriodicQuery
-from bosdyn.api.graph_nav import graph_nav_pb2, recording_pb2, map_processing_pb2
+from bosdyn.api.graph_nav import recording_pb2, map_processing_pb2
 from bosdyn.api.graph_nav.recording_pb2 import CreateWaypointResponse
 
 from bosdyn.client.exceptions import InternalServerError
