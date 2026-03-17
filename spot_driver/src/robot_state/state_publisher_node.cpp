@@ -52,8 +52,6 @@ StatePublisherNode::StatePublisherNode(const rclcpp::NodeOptions& node_options) 
                          std::move(parameter_interface), std::move(logger_interface),
                          std::move(tf_broadcaster_interface), std::move(timer_interface));
   init_thread.detach();
-  // initialize(std::move(spot_api), std::move(mw_handle), std::move(parameter_interface), std::move(logger_interface),
-  //            std::move(tf_broadcaster_interface), std::move(timer_interface));
 }
 
 void StatePublisherNode::initialize(std::unique_ptr<SpotApi> spot_api,
