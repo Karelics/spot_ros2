@@ -27,6 +27,7 @@ constexpr auto kParameterNameUncompressImages = "uncompress_images";
 constexpr auto kParameterNamePublishCompressedImages = "publish_compressed_images";
 constexpr auto kParameterNamePublishDepthImages = "publish_depth";
 constexpr auto kParameterNamePublishDepthRegisteredImages = "publish_depth_registered";
+constexpr auto kParameterNameIgnoredFrames = "frames_to_ignore";
 constexpr auto kParameterPreferredOdomFrame = "preferred_odom_frame";
 constexpr auto kParameterTFRoot = "tf_root";
 constexpr auto kParameterSpotName = "spot_name";
@@ -233,6 +234,14 @@ std::string RclcppParameterInterface::getPreferredOdomFrame() const {
     RCLCPP_WARN(node_->get_logger(), "Given preferred odom frame '%s' is not a valid option, defaulting to '%s'.",
                 preferred_odom_frame.c_str(), kDefaultPreferredOdomFrame);
   return valid_preferred_odom_frame.value_or(kDefaultPreferredOdomFrame);
+}
+
+std::set<std::string> RclcppParameterInterface::getFramesToIgnore() const {
+  const auto kDefaultIgnoredFramesVector = std::vector<std::string>(std::begin(kDefaultIgnoredFrames),
+                                                            std::end(kDefaultIgnoredFrames));
+  const auto frames_to_ignore =
+      declareAndGetParameter<std::vector<std::string>>(node_, kParameterNameIgnoredFrames, kDefaultIgnoredFramesVector);
+  return std::set<std::string>(frames_to_ignore.begin(), frames_to_ignore.end());
 }
 
 std::string RclcppParameterInterface::getTFRoot() const {
