@@ -29,6 +29,8 @@ StatePublisher::StatePublisher(const std::shared_ptr<StateClientInterface>& stat
   frame_prefix_ = parameter_interface_->getFramePrefixWithDefaultFallback();
   is_using_vision_ = parameter_interface_->getPreferredOdomFrame() == "vision";
   full_tf_root_id_ = frame_prefix_ + parameter_interface_->getTFRoot();
+  // frames_to_ignore = parameter_interface_->getFramesToIgnore();
+  frames_to_ignore_ = {"odom"};
 
   const auto robot_state_rate = parameter_interface_->getRobotStateRate();
   const auto robot_state_callback_period = std::chrono::duration<double>{1.0 / robot_state_rate};
@@ -62,7 +64,7 @@ void StatePublisher::timerCallback() {
                          getFootState(robot_state),
                          getEstopStates(robot_state, clock_skew),
                          getJointStates(robot_state, clock_skew, frame_prefix_),
-                         getTf(robot_state, clock_skew, frame_prefix_, full_tf_root_id_),
+                         getTf(robot_state, clock_skew, frame_prefix_, full_tf_root_id_, frames_to_ignore_),
                          getOdomTwist(robot_state, clock_skew, is_using_vision_),
                          getOdom(robot_state, clock_skew, frame_prefix_, is_using_vision_),
                          getPowerState(robot_state, clock_skew),

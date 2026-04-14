@@ -4,6 +4,7 @@
 
 #include <memory>
 #include <string>
+#include <set>
 
 #include <spot_driver/api/middleware_handle_base.hpp>
 #include <spot_driver/api/state_client_interface.hpp>
@@ -61,6 +62,7 @@ class StatePublisher {
   void timerCallback();
 
   std::string full_tf_root_id_;
+  std::set<std::string, std::less<>> frames_to_ignore_;
 
   std::string frame_prefix_;
 
