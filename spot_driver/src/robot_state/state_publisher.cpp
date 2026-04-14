@@ -29,8 +29,7 @@ StatePublisher::StatePublisher(const std::shared_ptr<StateClientInterface>& stat
   frame_prefix_ = parameter_interface_->getFramePrefixWithDefaultFallback();
   is_using_vision_ = parameter_interface_->getPreferredOdomFrame() == "vision";
   full_tf_root_id_ = frame_prefix_ + parameter_interface_->getTFRoot();
-  // frames_to_ignore = parameter_interface_->getFramesToIgnore();
-  frames_to_ignore_ = {"odom"};
+  frames_to_ignore = parameter_interface_->getIgnoredFrames();
 
   const auto robot_state_rate = parameter_interface_->getRobotStateRate();
   const auto robot_state_callback_period = std::chrono::duration<double>{1.0 / robot_state_rate};

@@ -183,9 +183,6 @@ std::optional<tf2_msgs::msg::TFMessage> getTf(const ::bosdyn::api::FrameTreeSnap
     }
   }
 
-  // Do extra processing to make this driver work with Brain
-  // process_transforms_for_brain(tf_msg);
-
   return tf_msg;
 }
 

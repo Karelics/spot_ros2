@@ -236,7 +236,7 @@ std::string RclcppParameterInterface::getPreferredOdomFrame() const {
   return valid_preferred_odom_frame.value_or(kDefaultPreferredOdomFrame);
 }
 
-std::set<std::string> RclcppParameterInterface::getFramesToIgnore() const {
+std::set<std::string> RclcppParameterInterface::getIgnoredFrames() const {
   const auto kDefaultIgnoredFramesVector = std::vector<std::string>(std::begin(kDefaultIgnoredFrames),
                                                             std::end(kDefaultIgnoredFrames));
   const auto frames_to_ignore =
