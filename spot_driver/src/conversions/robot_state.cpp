@@ -126,13 +126,15 @@ std::optional<sensor_msgs::msg::JointState> getJointStates(const ::bosdyn::api::
 
 std::optional<tf2_msgs::msg::TFMessage> getTf(const ::bosdyn::api::RobotState& robot_state,
                                               const google::protobuf::Duration& clock_skew, const std::string& prefix,
-                                              [[maybe_unused]] const std::string& preferred_base_frame_id) {
+                                              [[maybe_unused]] const std::string& preferred_base_frame_id,
+                                              const std::set<std::string, std::less<>>& frames_to_ignore) {
   if (!robot_state.has_kinematic_state() || !robot_state.kinematic_state().has_transforms_snapshot()) {
     return std::nullopt;
   }
 
   return getTf(robot_state.kinematic_state().transforms_snapshot(),
-               robot_state.kinematic_state().acquisition_timestamp(), clock_skew, prefix, preferred_base_frame_id);
+               robot_state.kinematic_state().acquisition_timestamp(),
+               clock_skew, prefix, preferred_base_frame_id, frames_to_ignore);
 }
 
 std::optional<tf2_msgs::msg::TFMessage> getTf(const ::bosdyn::api::FrameTreeSnapshot& frame_tree_snapshot,
@@ -180,9 +182,6 @@ std::optional<tf2_msgs::msg::TFMessage> getTf(const ::bosdyn::api::FrameTreeSnap
           toTransformStamped(transform.parent_tform_child(), parent_frame_name, frame_name, timestamp_local));
     }
   }
-
-  // Do extra processing to make this driver work with Brain
-  process_transforms_for_brain(tf_msg);
 
   return tf_msg;
 }
@@ -370,81 +369,4 @@ std::optional<spot_msgs::msg::BehaviorFaultState> getBehaviorFaultState(const ::
   }
   return behavior_fault_msgs;
 }
-
-void process_transforms_for_brain(tf2_msgs::msg::TFMessage& tf_msg) {
-  // TODO(joni): Refactor (logic copied from the fork of the old driver)
-  geometry_msgs::msg::TransformStamped odom_to_body;
-  geometry_msgs::msg::TransformStamped odom_to_gpe;
-
-  for (auto & transform : tf_msg.transforms) {
-    // Publish the tfs in the base_link frame instead of body
-    if (transform.child_frame_id == "body") {
-      transform.child_frame_id = "base_link";
-    }
-    if (transform.header.frame_id == "body") {
-      transform.header.frame_id = "base_link";
-    }
-
-    if (transform.header.frame_id == "odom" && transform.child_frame_id == "base_link") {
-      odom_to_body = transform;
-    }
-
-    if (transform.header.frame_id == "odom" && transform.child_frame_id == "gpe") {
-      odom_to_gpe = transform;
-    }
-  }
-
-  // Add a new odom->base_footprint tf
-  geometry_msgs::msg::TransformStamped odom_to_base_footprint;
-  odom_to_base_footprint.header.stamp = odom_to_body.header.stamp;
-  odom_to_base_footprint.header.frame_id = "odom";
-  odom_to_base_footprint.child_frame_id = "base_footprint";
-  odom_to_base_footprint.transform = odom_to_body.transform;
-  odom_to_base_footprint.transform.translation.z = 0.0;
-
-  // Zero the roll and pitch in the rotation
-  tf2::Quaternion quat;
-  tf2::fromMsg(odom_to_body.transform.rotation, quat);
-  tf2::Matrix3x3 m(quat);
-  double roll, pitch, yaw;
-  m.getRPY(roll, pitch, yaw);
-  quat.setRPY(0.0, 0.0, yaw);
-  odom_to_base_footprint.transform.rotation = tf2::toMsg(quat);
-  tf_msg.transforms.emplace_back(odom_to_base_footprint);
-
-  // Remove the original odom->body tf to create a new base_footprint->base_link tf
-  for (auto it = tf_msg.transforms.begin(); it != tf_msg.transforms.end(); ) {
-    if (it->header.frame_id == "odom" && it->child_frame_id == "body") {
-      it = tf_msg.transforms.erase(it);
-      break;
-    } else {
-      ++it;
-    }
-  }
-
-  // Add a new base_footprint->base_link tf. Rotation and position from the original
-  geometry_msgs::msg::TransformStamped base_footprint_to_base_link;
-  base_footprint_to_base_link.header.stamp = odom_to_base_footprint.header.stamp;
-  base_footprint_to_base_link.header.frame_id = "base_footprint";
-  base_footprint_to_base_link.child_frame_id = "base_link";
-  base_footprint_to_base_link.transform.translation.x = 0.0;
-  base_footprint_to_base_link.transform.translation.y = 0.0;
-  base_footprint_to_base_link.transform.translation.z = std::fabs(odom_to_body.transform.translation.z - odom_to_gpe.transform.translation.z);
-
-  // Zero the yaw in the rotation
-  tf2::fromMsg(odom_to_body.transform.rotation, quat);
-  tf2::Matrix3x3 m2(quat);
-  m2.getRPY(roll, pitch, yaw);
-  quat.setRPY(roll, pitch, 0.0);
-  base_footprint_to_base_link.transform.rotation = tf2::toMsg(quat);
-  tf_msg.transforms.emplace_back(base_footprint_to_base_link);
-
-  for (auto & transform : tf_msg.transforms) {
-    if (transform.header.frame_id == "odom" && transform.child_frame_id == "gpe") {
-      transform.transform.translation.z = 0.0;
-    }
-  }
-}
-
-
 }  // namespace spot_ros2

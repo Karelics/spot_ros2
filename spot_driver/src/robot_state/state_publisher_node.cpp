@@ -75,6 +75,8 @@ void StatePublisherNode::initialize(std::unique_ptr<SpotApi> spot_api,
     throw std::runtime_error(error_msg);
   }
   
+  // TODO(joni): We could try to get this as a contribution to the driver. Maybe behind a parameter if we want to keep the original behavior as well.
+  // This implementation does not crash the whole node if authentication fails on startup.
   auto authentication_result = spot_api_->authenticate(username, password);
   while (!authentication_result) {
     const auto error_msg{std::string{"Failed to authenticate robot: "}.append(authentication_result.error())};
