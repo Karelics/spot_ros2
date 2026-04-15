@@ -39,6 +39,8 @@ class FakeParameterInterface : public ParameterInterfaceBase {
 
   std::string getPreferredOdomFrame() const override { return kDefaultPreferredOdomFrame; }
 
+  std::set<std::string> getFramesToIgnore() const override { return {}; }
+
   std::string getTFRoot() const override { return "odom"; }
 
   std::optional<std::string> getFramePrefix() const override { return std::nullopt; }

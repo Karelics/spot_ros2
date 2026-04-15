@@ -41,6 +41,7 @@ class ParameterInterfaceBase {
   virtual bool getPublishDepthImages() const = 0;
   virtual bool getPublishDepthRegisteredImages() const = 0;
   virtual std::string getPreferredOdomFrame() const = 0;
+  virtual std::set<std::string> getFramesToIgnore() const = 0;
   virtual std::string getTFRoot() const = 0;
   virtual std::optional<std::string> getFramePrefix() const = 0;
   virtual std::string getSpotNameWithFallbackToNamespace() const = 0;
@@ -68,6 +69,7 @@ class ParameterInterfaceBase {
   static constexpr bool kDefaultPublishDepthRegisteredImages{true};
   static constexpr std::array<const char* const, 2> kValidOdomFrameNames{"odom", "vision"};
   static constexpr std::array<const char* const, 3> kValidTFRootFrameNames{"odom", "vision", "body"};
+  static constexpr std::array<const char* const, 0> kDefaultIgnoredFrames{};
   static constexpr auto kDefaultPreferredOdomFrame = kValidOdomFrameNames[0];
   static constexpr auto kDefaultTFRoot = kValidTFRootFrameNames[0];
   static constexpr bool kDefaultGripperless{false};

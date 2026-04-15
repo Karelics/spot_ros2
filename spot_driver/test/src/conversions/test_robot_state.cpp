@@ -284,7 +284,7 @@ TEST(RobotStateConversions, TestGetTf) {
   clock_skew.set_seconds(1);
 
   // WHEN we create a TF tree from the RobotState
-  const auto out = getTf(robot_state, clock_skew, "prefix/", "odom");
+  const auto out = getTf(robot_state, clock_skew, "prefix/", "odom", {});
   // THEN this succeeds
   ASSERT_THAT(out.has_value(), IsTrue());
 
@@ -320,7 +320,7 @@ TEST(RobotStateConversions, TestGetTfInverted) {
   clock_skew.set_seconds(1);
 
   // WHEN we create a TF tree from the RobotState
-  const auto out = getTf(robot_state, clock_skew, "prefix/", "prefix/body");
+  const auto out = getTf(robot_state, clock_skew, "prefix/", "prefix/body", {});
   // THEN this succeeds
   ASSERT_THAT(out.has_value(), IsTrue());
 
