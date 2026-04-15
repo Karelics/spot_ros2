@@ -41,7 +41,7 @@ class ParameterInterfaceBase {
   virtual bool getPublishDepthImages() const = 0;
   virtual bool getPublishDepthRegisteredImages() const = 0;
   virtual std::string getPreferredOdomFrame() const = 0;
-  virtual std::set<std::string> getFramesToIgnore() const = 0;
+  virtual std::set<std::string, std::less<>> getIgnoredFrames() const = 0;
   virtual std::string getTFRoot() const = 0;
   virtual std::optional<std::string> getFramePrefix() const = 0;
   virtual std::string getSpotNameWithFallbackToNamespace() const = 0;

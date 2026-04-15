@@ -36,7 +36,7 @@ class RclcppParameterInterface : public ParameterInterfaceBase {
   [[nodiscard]] bool getPublishDepthImages() const override;
   [[nodiscard]] bool getPublishDepthRegisteredImages() const override;
   [[nodiscard]] std::string getPreferredOdomFrame() const override;
-  [[nodiscard]] std::set<std::string> getIgnoredFrames() const override;
+  [[nodiscard]] std::set<std::string, std::less<>> getIgnoredFrames() const override;
   [[nodiscard]] std::string getTFRoot() const override;
   [[nodiscard]] std::optional<std::string> getFramePrefix() const override;
   [[nodiscard]] std::string getSpotNameWithFallbackToNamespace() const override;
