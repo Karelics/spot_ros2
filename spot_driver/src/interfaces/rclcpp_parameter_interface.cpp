@@ -236,12 +236,12 @@ std::string RclcppParameterInterface::getPreferredOdomFrame() const {
   return valid_preferred_odom_frame.value_or(kDefaultPreferredOdomFrame);
 }
 
-std::set<std::string> RclcppParameterInterface::getIgnoredFrames() const {
+std::set<std::string, std::less<>> RclcppParameterInterface::getIgnoredFrames() const {
   const auto kDefaultIgnoredFramesVector = std::vector<std::string>(std::begin(kDefaultIgnoredFrames),
                                                             std::end(kDefaultIgnoredFrames));
   const auto frames_to_ignore =
       declareAndGetParameter<std::vector<std::string>>(node_, kParameterNameIgnoredFrames, kDefaultIgnoredFramesVector);
-  return std::set<std::string>(frames_to_ignore.begin(), frames_to_ignore.end());
+  return std::set<std::string, std::less<>>(frames_to_ignore.begin(), frames_to_ignore.end());
 }
 
 std::string RclcppParameterInterface::getTFRoot() const {
