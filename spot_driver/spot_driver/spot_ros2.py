@@ -2856,7 +2856,11 @@ class SpotROS(Node):
                 throttle_duration_sec=5.0)
             return
 
-        self.spot_wrapper.velocity_cmd(data.linear.x, data.linear.y, data.angular.z, self.cmd_duration)
+        self.spot_wrapper.velocity_cmd(
+            v_x=data.linear.x,
+            v_y=data.linear.y,
+            v_rot=data.angular.z,
+            cmd_duration=self.cmd_duration)
 
     def body_pose_callback(self, data: Pose) -> None:
         """Callback for cmd_vel command"""
