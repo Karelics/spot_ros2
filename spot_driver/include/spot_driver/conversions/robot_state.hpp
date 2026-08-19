@@ -232,5 +232,4 @@ std::optional<geometry_msgs::msg::Vector3Stamped> getEndEffectorForce(const ::bo
  */
 std::optional<spot_msgs::msg::BehaviorFaultState> getBehaviorFaultState(const ::bosdyn::api::RobotState& robot_state,
                                                                         const google::protobuf::Duration& clock_skew);
-
 }  // namespace spot_ros2

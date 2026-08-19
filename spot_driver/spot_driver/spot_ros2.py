@@ -24,6 +24,7 @@ import rclpy
 import rclpy.duration
 import rclpy.time
 import tf2_ros
+import bosdyn.client.recording
 from bondpy.bondpy import Bond
 from bosdyn.api import (
     arm_command_pb2,
@@ -43,11 +44,8 @@ from bosdyn.api.spot import robot_command_pb2 as spot_command_pb2
 from bosdyn.api.spot.choreography_sequence_pb2 import Animation, ChoreographySequence, ChoreographyStatusResponse
 from bosdyn.client import math_helpers
 from bosdyn.client.async_tasks import AsyncPeriodicQuery
-import bosdyn.client.recording
 from bosdyn.api.graph_nav import recording_pb2, map_processing_pb2
 from bosdyn.api.graph_nav.recording_pb2 import CreateWaypointResponse
-from spot_msgs.action import DownloadMapData
-from spot_msgs.srv import CreateWaypoint, OptimizeMapping
 
 from bosdyn.client.exceptions import InternalServerError
 from bosdyn.client.lease import Lease, LeaseWallet
@@ -90,6 +88,7 @@ import synchros2.process as ros_process
 from spot_driver.ros_helpers import TriggerServiceWrapper, get_from_env_and_fall_back_to_param
 from spot_msgs.action import (  # type: ignore
     ArmSurfaceContact,
+    DownloadMapData,
     ExecuteDance,
     Manipulation,
     NavigateTo,
@@ -111,6 +110,7 @@ from spot_msgs.srv import (  # type: ignore
     ChoreographyStartRecordingState,
     ChoreographyStopRecordingState,
     ClearBehaviorFault,
+    CreateWaypoint,
     DeleteLogpoint,
     DeleteSound,
     Dock,
@@ -135,6 +135,7 @@ from spot_msgs.srv import (  # type: ignore
     ListWorldObjects,
     LoadSound,
     MutateWorldObject,
+    OptimizeMapping,
     OverrideGraspOrCarry,
     PlaySound,
     RetrieveLogpoint,
@@ -2926,7 +2927,11 @@ class SpotROS(Node):
                 throttle_duration_sec=5.0)
             return
 
-        self.spot_wrapper.velocity_cmd(data.linear.x, data.linear.y, data.angular.z, self.cmd_duration)
+        self.spot_wrapper.velocity_cmd(
+            v_x=data.linear.x,
+            v_y=data.linear.y,
+            v_rot=data.angular.z,
+            cmd_duration=self.cmd_duration)
 
     def body_pose_callback(self, data: Pose) -> None:
         """Callback for cmd_vel command"""
