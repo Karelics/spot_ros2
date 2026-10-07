@@ -2931,7 +2931,8 @@ class SpotROS(Node):
             v_x=data.linear.x,
             v_y=data.linear.y,
             v_rot=data.angular.z,
-            cmd_duration=self.cmd_duration)
+            cmd_duration=self.cmd_duration
+        )
 
     def body_pose_callback(self, data: Pose) -> None:
         """Callback for cmd_vel command"""
